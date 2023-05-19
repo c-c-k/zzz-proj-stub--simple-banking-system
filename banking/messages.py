@@ -11,9 +11,9 @@ MAIN_MENU_ANONYMOUS = """
 CREATE_CARD_SUCCESS = """
 Your card has been created
 Your card number:
-{card_num}
+{card_num:0>16}
 Your card PIN:
-{card_pin}
+{card_pin:0>4}
 """
 ENTER_CARD_NUM = "Enter your card number:"
 ENTER_CARD_PIN = "Enter your PIN:"

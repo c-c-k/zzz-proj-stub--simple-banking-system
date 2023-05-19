@@ -2,7 +2,9 @@ from random import randint
 
 import messages
 
-next_account_number = 0
+BIN_PREFIX = 4000000000000000
+
+next_account_number = 10
 accounts = {}
 g = {}
 
@@ -29,15 +31,29 @@ def menu_main_authenticated():
     menu(messages.MAIN_MENU_AUTHENTICATED, "menu/main")
 
 
+def gen_card_num_checksum(card_number):
+    control_number = 0
+    for digit_place in range(16):
+        digit = card_number % 10
+        card_number //= 10
+        if digit_place % 2 != 0:
+            digit *= 2
+            digit -= 9 if digit > 9 else 0
+        print(card_number, digit, control_number)
+        control_number += digit
+    return (10 - control_number % 10) % 10
+
+
 def gen_card_num():
     global next_account_number
-    card_number = f"400000{next_account_number:0>9}0"
-    next_account_number += 1
+    card_number = BIN_PREFIX + next_account_number
+    card_number += gen_card_num_checksum(card_number)
+    next_account_number += 10
     return card_number
 
 
 def gen_card_pin():
-    return f"{randint(0, 9999):0>4}"
+    return randint(0, 9999)
 
 
 def create_account():
@@ -56,12 +72,12 @@ def create_account_success(card_num, card_pin):
 
 def auth_login():
     print_message(messages.ENTER_CARD_NUM)
-    card_num = input()
+    card_num = int(input())
     print_message(messages.ENTER_CARD_PIN)
-    card_pin = input()
+    card_pin = int(input())
     controller(
         "auth/is_valid",
-        accounts.get(card_num, "") == card_pin,
+        accounts.get(card_num, -1) == card_pin,
         card_num
     )
 
