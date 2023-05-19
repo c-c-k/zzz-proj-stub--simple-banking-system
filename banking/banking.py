@@ -19,6 +19,9 @@ next_raw_card_num = None
 g = {}
 
 
+class ValidationError(Exception):
+    pass
+
 class Card:
     def __init__(self, id_, card_num, card_pin, balance_):
         self.id = id_
@@ -38,7 +41,6 @@ def init_db():
     if Path('card.s3db').exists():
         return
     db = get_db()
-    # cur = db.cursor()
     db.execute(SCHEMA)
     db.commit()
 
@@ -77,7 +79,6 @@ def menu_main_authenticated():
 
 
 def gen_card_num_checksum(card_number):
-    card_number = int(card_number)
     control_number = 0
     for digit_place in range(16):
         digit = card_number % 10
@@ -106,7 +107,6 @@ def create_account():
     card_num = gen_card_num()
     card_pin = gen_card_pin()
     db = get_db()
-    # cur = db.cursor()
     db.execute("""
     INSERT INTO card (number, pin)
     VALUES (?, ?)
@@ -127,7 +127,6 @@ def auth_login():
     print_message(messages.ENTER_CARD_PIN)
     card_pin = input()
     db = get_db()
-    # cur = db.cursor()
     card_info = db.execute("""
     SELECT *
     FROM card
@@ -166,6 +165,101 @@ def balance():
     controller("menu/main")
 
 
+def add_income():
+    print_message(messages.ENTER_INCOME)
+    new_income = int(input())
+    card = g['card']
+    card.balance += new_income
+    db = get_db()
+    db.execute("""
+    UPDATE card
+    SET balance = ?
+    WHERE number = ?
+    """, (card.balance, card.card_num))
+    db.commit()
+    print_message(messages.INCOME_ADDED)
+    controller("menu/main")
+
+
+def close_account():
+    card = g['card']
+    db = get_db()
+    db.execute("""
+    DELETE FROM card
+    WHERE number = ?
+    """, (card.card_num,))
+    db.commit()
+    g.pop('card')
+    print_message(messages.ACOUNT_DELETED)
+    controller("menu/main")
+
+
+def validate_not_same_account(target_card):
+    if target_card == g['card'].card_num:
+        raise ValidationError(messages.ERROR_SAME_ACCOUNT)
+
+
+def validate_target_card_checksum(target_card):
+    raw_target_card = int(target_card[:-1] + "0")
+    if gen_card_num_checksum(raw_target_card) != int(target_card[-1]):
+        raise ValidationError(messages.ERROR_WRONG_CHECKSUM)
+
+
+def validate_target_card_exists(target_card):
+    db = get_db()
+    target_card_exists = db.execute("""
+    SELECT true FROM card WHERE number = ?
+    """, (target_card,)).fetchone()
+    if not target_card_exists:
+        raise ValidationError(messages.ERROR_TRANSFER_ACCOUNT_DOES_NOT_EXIST)
+
+
+def validate_sufficient_funds(transfer_amount):
+    if g['card'].balance < transfer_amount:
+        raise ValidationError(messages.ERROR_INSUFFICIENT_FUNDS)
+
+
+def start_transfer():
+    print_message(messages.ENTER_CARD_NUM_FOR_TRANSFER)
+    target_card = input()
+    try:
+        validate_not_same_account(target_card)
+        validate_target_card_checksum(target_card)
+        validate_target_card_exists(target_card)
+    except ValidationError as err:
+        print_message(err.args[0])
+        controller("menu/main")
+        return
+    print_message(messages.ENTER_AMOUNT_FOR_TRANSFER)
+    transfer_amount = int(input())
+    try:
+        validate_sufficient_funds(transfer_amount)
+    except ValidationError as err:
+        print_message(err.args[0])
+        controller("menu/main")
+        return
+    controller("transfer_funds", target_card, transfer_amount)
+
+
+def execute_transfer(target_card, transfer_amount):
+    card = g['card']
+    db = get_db()
+    db.execute("""
+    UPDATE card
+    SET balance = balance - ?
+    WHERE number = ?
+    """, (transfer_amount, card.card_num))
+    db.execute("""
+    UPDATE card
+    SET balance = balance + ?
+    WHERE number = ?
+    """, (transfer_amount, target_card))
+    db.commit()
+    card.balance -= transfer_amount
+    print_message(messages.SUCCESS)
+    controller("menu/main")
+
+
 def controller(*command):
     match command:
         case ["menu/main"] if 'card' in g:
@@ -173,6 +267,12 @@ def controller(*command):
         case ["menu/main", "1"] if 'card' in g:
             balance()
         case ["menu/main", "2"] if 'card' in g:
+            add_income()
+        case ["menu/main", "3"] if 'card' in g:
+            start_transfer()
+        case ["menu/main", "4"] if 'card' in g:
+            close_account()
+        case ["menu/main", "5"] if 'card' in g:
             auth_logout()
         case ["menu/main"]:
             menu_main_anonymous()
@@ -188,6 +288,8 @@ def controller(*command):
             login_success(card_num)
         case ["auth/is_valid", False, _]:
             login_failed()
+        case ["transfer_funds", target_card, transfer_amount]:
+            execute_transfer(target_card, transfer_amount)
 
 
 def main():
